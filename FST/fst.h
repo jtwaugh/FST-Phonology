@@ -45,7 +45,9 @@ PhonRule::PhonRule(std::string plaintext)
 	// Screw C++ and all of this string manipulation nonsense
 	// Let the record show that hours were spent trying to make this one tangential thing succinct
 
-	std::remove_if(plaintext.begin(), plaintext.end(), isspace);
+	plaintext.erase(std::remove_if(plaintext.begin(), plaintext.end(), isspace), plaintext.end());
+
+	// std::cout << "Removed whitespace. Result: \"" << plaintext << "\"." << std::endl;
 
 	// Split at ">"
 	std::string input = "";
