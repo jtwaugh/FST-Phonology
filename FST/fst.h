@@ -150,6 +150,7 @@ private:
 	transition_function_t									transition_;
 
 	int														OutputState(char input, char output, int current_state);
+	void													AddDefaultEdge(int j, char prefix_0);
 
 public:
 	FST(std::vector<int> states, std::vector<int> initial_states, std::vector<int> final_states, std::string input_alphabet, std::string output_alphabet);
@@ -203,6 +204,41 @@ FST::FST(std::vector<int> states, std::vector<int> initial_states, std::vector<i
 
 }
 
+void FST::AddDefaultEdge(int j, char prefix_0)
+{
+	// Add the "prefix[0]/prefix[0] goes to start of chain, else ?/? goes to 0" flag
+
+	for (auto i = input_alphabet_.begin(); i != input_alphabet_.end(); i++)
+	{
+		// If there isn't already an x/x edge going somewhere else
+		bool edgefound = false;
+
+		for (auto k = states_.begin(); k != states_.end(); k++)
+		{
+			std::tuple<char, int, int, char> candidate{ *i, j, *k, *i };
+			if (transition_.find(candidate) != transition_.end())
+			{
+				edgefound = true;
+				break;
+			}
+		}
+
+		if (!edgefound)
+		{
+			if (*i == prefix_0)
+			{
+				std::tuple<char, int, int, char> default_edge{ *i, j, 1, *i };
+				transition_.insert(default_edge);
+			}
+			else
+			{
+				std::tuple<char, int, int, char> default_edge{ *i, j, 0, *i };
+				transition_.insert(default_edge);
+			}
+		}
+	}
+}
+
 FST::FST(std::string input_alphabet, std::string output_alphabet, PhonRule& rule) :
 states_(std::unordered_set<int>()), initial_states_(std::unordered_set<int>()), final_states_(std::unordered_set<int>()), transition_(transition_function_t())
 {
@@ -230,36 +266,55 @@ states_(std::unordered_set<int>()), initial_states_(std::unordered_set<int>()), 
 
 	int j = 1;
 
+	// Add the chain of prefix states
 	for (int i = 0; i < rule.prefix().length(); i++)
 	{
 		states_.insert(j);
+
+		// Ensure that we can end here
 		final_states_.insert(j);
 
 		std::tuple<char, int, int, char> edge { rule.prefix()[i], j-1, j, rule.prefix()[i] };
 
 		transition_.insert(edge);
 
+		AddDefaultEdge(j-1, rule.prefix()[0]);
+
 		j++;
 	}
 
-	std::tuple<char, int, int, char> change{ rule.input(), j-1, j, rule.output() };
-	transition_.insert(change);
-
-	for (int i = 0; i < rule.suffix().length() - 1; i++)
+	if (rule.suffix().length() > 0)
+	// If there's a suffix
 	{
+		std::tuple<char, int, int, char> change{ rule.input(), j - 1, j, rule.output() };
+		transition_.insert(change);
+
+		for (int i = 0; i < rule.suffix().length() - 1; i++)
+		{
+			states_.insert(j);
+
+			std::tuple<char, int, int, char> edge{ rule.suffix()[i], j, j + 1, rule.suffix()[i] };
+
+			transition_.insert(edge);
+
+			AddDefaultEdge(j - 1, rule.prefix()[0]);
+
+			j++;
+		}
+
 		states_.insert(j);
 
-		std::tuple<char, int, int, char> edge{ rule.suffix()[i], j, j+1, rule.suffix()[i] };
-
-		transition_.insert(edge);
-
-		j++;
+		std::tuple<char, int, int, char> end{ rule.suffix().back(), j, 0, rule.suffix().back() };
+		transition_.insert(end);
 	}
+	else
+	// Otherwise
+	{
+		std::tuple<char, int, int, char> change{ rule.input(), j - 1, 0, rule.output() };
+		transition_.insert(change);
 
-	states_.insert(j);
-
-	std::tuple<char, int, int, char> end{ rule.suffix().back(), j, 0, rule.suffix().back() };
-	transition_.insert(end);
+		// TODO: add the "?/? goes to 0" flag
+	}
 
 	// Remember in evaluation that taking any < x, n, n, x > after a final state n is valid if edges don't specify otherwise
 }
@@ -278,9 +333,8 @@ int FST::OutputState(char input, char output, int current_state)
 		}
 	}
 
-	// Otherwise, we've reallly screwed the pooch
+	// Otherwise otherwise, we've reallly screwed the pooch
 	// We probably want only positively-numbered states anyway
-
 	return -9001;
 }
 
