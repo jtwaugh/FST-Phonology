@@ -9,154 +9,46 @@
 
 // ---------------------------------------------- 
 
-#include <iostream>
-#include <string>
-#include <unordered_set>
-#include <tuple>
-#include <algorithm>
+#include "phonrule.h"
+#include "transition.h"
+
 #include <vector>
 
 // ---------------------------------------------- 
 
 // Gonna hardcode the state types and input/output as chars. Sorry.
 
-class PhonRule
-{
-// Replaces a symbol with a string of symbols if the prefix and suffix are satisfied
-private:
-	char									input_;
-	char									output_;
-	std::string								prefix_;
-	std::string								suffix_;
-
-public:
-	PhonRule(std::string plaintext);
-
-	char									input();
-	char									output();
-	std::string								prefix();
-	std::string								suffix();
-
-	bool									MatchesEnvironment(std::string prefix, std::string suffix);
-};
-
-PhonRule::PhonRule(std::string plaintext)
-{ 
-	// Screw C++ and all of this string manipulation nonsense
-	// Let the record show that hours were spent trying to make this one tangential thing succinct
-
-	plaintext.erase(std::remove_if(plaintext.begin(), plaintext.end(), isspace), plaintext.end());
-
-	// std::cout << "Removed whitespace. Result: \"" << plaintext << "\"." << std::endl;
-
-	// Split at ">"
-	std::string input = "";
-	size_t i = plaintext.find_first_of('>');
-	input.append(plaintext, 0, i);
-	
-	if (input.length() != 1)
-	{
-		std::cout << "Error: PhonRule input string " << input << " is not a single character." << std::endl;
-	}
-	
-	input_ = input[0];
-
-	// Split at "/"
-	std::string output = "";
-	size_t j = plaintext.find_first_of('/');
-	output.append(plaintext, i + 1, j - i - 1);
-
-	if (output.length() != 1)
-	{
-		std::cout << "Error: PhonRule output string " << output << " is not a single character." << std::endl;
-	}
-
-	output_ = output[0];
-
-	// Split at "_"
-	prefix_ = "";
-	suffix_ = "";
-	size_t k = plaintext.find_first_of('_');
-	prefix_.append(plaintext, j + 1, k - j - 1);
-	suffix_.append(plaintext, k + 1, plaintext.length() - k - 1);
-}
-
-char PhonRule::input()
-{
-	return input_;
-}
-
-char PhonRule::output()
-{
-	return output_;
-}
-
-std::string PhonRule::prefix()
-{
-	return prefix_;
-}
-
-std::string PhonRule::suffix()
-{
-	return suffix_;
-}
-
-bool PhonRule::MatchesEnvironment(std::string prefix, std::string suffix)
-{
-	return (prefix == prefix_ && suffix == suffix_);
-}
-
-// ---------------------------------------------- 
-
-// Now a bunch of nonsense to build the transition function data structure:
-
-typedef std::tuple<char, int, int, char> edge_t;
-
-struct key_hash : public std::unary_function<edge_t, std::size_t>
-{
-	std::size_t operator()(const edge_t& k) const
-	{
-		return std::get<0>(k) ^ std::get<1>(k) ^ std::get<2>(k) ^ std::get<3>(k);
-	}
-};
-
-struct key_equal : public std::binary_function<edge_t, edge_t, bool>
-{
-	bool operator()(const edge_t& v0, const edge_t& v1) const
-	{
-		return (
-			std::get<0>(v0) == std::get<0>(v1) &&
-			std::get<1>(v0) == std::get<1>(v1) &&
-			std::get<2>(v0) == std::get<2>(v1) &&
-			std::get<3>(v0) == std::get<3>(v1)
-			);
-	}
-};
-
-typedef std::unordered_set<edge_t, key_hash, key_equal> transition_function_t;
-
-// ----------------------------------------------
+// The FST is an automaton that holds a transition relation and two sets of symbols.
+// It validates a string of symbols in the first set against a string of symbols in the second.
 
 class FST
 {
 private:
-	std::unordered_set<int>									states_;
-	std::unordered_set<int>									initial_states_;
-	std::unordered_set<int>									final_states_;
+	std::unordered_set<int>					states_;														// Set of states
+	std::unordered_set<int>					initial_states_;												// Set of starting states; honestly, probably always going to be zero
+	std::unordered_set<int>					final_states_;													// Set of valid terminal states
 	
-	std::unordered_set<char>								input_alphabet_;
-	std::unordered_set<char>								output_alphabet_;
-
-	transition_function_t									transition_;
-
-	int														OutputState(char input, char output, int current_state);
-	void													AddDefaultEdge(int j, char prefix_0);
+	std::unordered_set<char>				input_alphabet_;												// Set of symbols allowed on the input tape
+	std::unordered_set<char>				output_alphabet_;												// Set of symbols allowed on the output tape
+		
+	transition_function_t					transition_;													// Set of 4-tuples (imagine as graph edges) that we validate against
+		
+	int										OutputState(char input, char output, int current_state);		// Gets output state as a function of input symbol, output symbol, and current state
+	void									AddDefaultEdge(int j, char prefix_0);							// Adds edges feeding back to either zero or the beginning of the prefix chain
+	void									FillChain(std::string source, int &j, char prefix_0);			// Fills out either the prefix or the suffix chain
 
 public:
-	FST(std::vector<int> states, std::vector<int> initial_states, std::vector<int> final_states, std::string input_alphabet, std::string output_alphabet);
-	FST(std::string input_alphabet, std::string output_alphabet, PhonRule& rule);
+	FST(std::vector<int> states,																			// "Synthetic" constructor
+		std::vector<int> initial_states, 
+		std::vector<int> final_states, 
+		std::string input_alphabet, 
+		std::string output_alphabet);
+	
+	FST(std::string input_alphabet,																			// Builds a transition function from a phonological rule
+		std::string output_alphabet, 
+		PhonRule& rule);
 
-	bool													Validate(std::string input_tape, std::string output_tape);
+	bool									Validate(std::string input_tape, std::string output_tape);		// Iterates through the transition function, aborts with error is the output tape is invalid
 };
 
 // ---------------------------------------------- 
@@ -165,14 +57,15 @@ FST::FST(std::vector<int> states, std::vector<int> initial_states, std::vector<i
 {
 	states_ = std::unordered_set<int>();
 
+	// Add all the states
 	for (int i = 0; i < states.size(); i++)
 	{
 		states_.insert(states[i]);
 	}
 
+	// Verify that the initial states are all states
 	for (int i = 0; i < initial_states.size(); i++)
 	{
-		// Sanity check for subset inclusion
 		if (states_.find(initial_states[i]) == states_.end())
 		{
 			std::cout << "Error: initial_states not subset of states" << std::endl;
@@ -181,9 +74,9 @@ FST::FST(std::vector<int> states, std::vector<int> initial_states, std::vector<i
 		initial_states_.insert(initial_states[i]);
 	}
 
+	// Verify that the final states are all states
 	for (int i = 0; i < final_states.size(); i++)
 	{
-		// Sanity check for subset inclusion
 		if (states_.find(final_states[i]) == states_.end())
 		{
 			std::cout << "Error: final_states not subset of states" << std::endl;
@@ -191,6 +84,8 @@ FST::FST(std::vector<int> states, std::vector<int> initial_states, std::vector<i
 
 		final_states_.insert(final_states[i]);
 	}
+
+	// Create the alphabets
 
 	for (int i = 0; i < input_alphabet.length(); i++)
 	{
@@ -210,7 +105,7 @@ void FST::AddDefaultEdge(int j, char prefix_0)
 
 	for (auto i = input_alphabet_.begin(); i != input_alphabet_.end(); i++)
 	{
-		// If there isn't already an x/x edge going somewhere else
+		// If there isn't already an x/x edge going somewhere else...
 		bool edgefound = false;
 
 		for (auto k = states_.begin(); k != states_.end(); k++)
@@ -223,6 +118,7 @@ void FST::AddDefaultEdge(int j, char prefix_0)
 			}
 		}
 
+		// Then add one either starting the chain or resetting it
 		if (!edgefound)
 		{
 			if (*i == prefix_0)
@@ -239,6 +135,31 @@ void FST::AddDefaultEdge(int j, char prefix_0)
 	}
 }
 
+void FST::FillChain(std::string source, int &j, char prefix_0)
+{
+	for (int i = 0; i < source.length(); i++)
+	{
+		// Add the state
+		states_.insert(j);
+
+		// Ensure that we can end here
+		final_states_.insert(j);
+
+		// Create a cadidate edge and add it
+		edge_t edge{ source[i], j - 1, j, source[i] };
+
+		transition_.insert(edge);
+
+		// Print for debugging
+		std::cout << "Nontrivial edge " << j - 1 << " -> " << j << ": " << source[i] << "/" << source[i] << std::endl;
+
+		// Add default edges
+		AddDefaultEdge(j - 1, prefix_0);
+
+		j++;
+	}
+}
+
 FST::FST(std::string input_alphabet, std::string output_alphabet, PhonRule& rule) :
 states_(std::unordered_set<int>()), initial_states_(std::unordered_set<int>()), final_states_(std::unordered_set<int>()), transition_(transition_function_t())
 {
@@ -246,6 +167,7 @@ states_(std::unordered_set<int>()), initial_states_(std::unordered_set<int>()), 
 	// TODO: allow symbols to denote sets
 	// TODO: allow insertion of multiple symbols
 
+	// Create the alphabets
 	for (int i = 0; i < input_alphabet.length(); i++)
 	{
 		input_alphabet_.insert(input_alphabet[i]);
@@ -256,91 +178,69 @@ states_(std::unordered_set<int>()), initial_states_(std::unordered_set<int>()), 
 		output_alphabet_.insert(output_alphabet[i]);
 	}
 
-	// Set up first state
-
+	// Set up the first state
 	initial_states_.insert(0);
 	states_.insert(0);
 	final_states_.insert(0);
 
 	// Create the circuit
-
 	int j = 1;
 
-	// Add the chain of prefix states
-
-	if (rule.prefix().length() > 0)
 	// If there's a prefix
+	if (rule.prefix().length() > 0)
 	{
-		for (int i = 0; i < rule.prefix().length(); i++)
-		{
-			states_.insert(j);
+		// Add the states and wire them up
+		FillChain(rule.prefix(), j, rule.prefix()[0]);
 
-			// Ensure that we can end here
-			final_states_.insert(j);
-
-			edge_t edge{ rule.prefix()[i], j - 1, j, rule.prefix()[i] };
-
-			transition_.insert(edge);
-
-			std::cout << "Nontrivial edge " << j - 1 << " -> " << j << ": " << rule.prefix()[i] << "/" << rule.prefix()[i] << std::endl;
-
-			AddDefaultEdge(j - 1, rule.prefix()[0]);
-
-			j++;
-		}
-
+		// Add default edges to the last node
 		AddDefaultEdge(j-1, rule.prefix()[0]);
 	}
 	else
 	{
+		// Add default edges to the first/last node
 		AddDefaultEdge(0, rule.prefix()[0]);
 	}
 
+	// Add the alternation state
 	states_.insert(j);
 
 	if (rule.suffix().length() > 0)
 	// If there's a suffix
 	{
+		// Set the alternation edge and add it
 		edge_t change{ rule.input(), j - 1, j, rule.output() };
 		transition_.insert(change);
 
+		// Debug print and increment the counter
 		std::cout << "Nontrivial edge " << j - 1 << " -> " << j << ": " << rule.input() << "/" << rule.output() << std::endl;
-
 		j++;
 
-		for (int i = 0; i < rule.suffix().length() - 1; i++)
-		{
-			states_.insert(j);
+		// Add the suffix chain
+		FillChain(rule.suffix(), j, rule.prefix()[0]);
 
-			edge_t edge{ rule.suffix()[i], j - 1, j, rule.suffix()[i] };
-
-			transition_.insert(edge);
-
-			std::cout << "Nontrivial edge " << j - 1 << " -> " << j << ": " << rule.suffix()[i] << "/" << rule.suffix()[i] << std::endl;
-
-			AddDefaultEdge(j - 1, rule.prefix()[0]);
-
-			j++;
-		}
-
+		// Add the last state
 		states_.insert(j - 1);
 
+		// Add the edge looping back to the terminal state
 		edge_t end{ rule.suffix().back(), j - 1, 0, rule.suffix().back() };
 		transition_.insert(end);
 
+		// Debug print
 		std::cout << "Nontrivial edge " << j - 1 << " -> " << 0 << ": " << rule.suffix().back() << "/" << rule.suffix().back() << std::endl;
 
+		// Add default edges to the last node
 		AddDefaultEdge(j, rule.prefix()[0]);
 	}
 	else
 	// Otherwise
 	{
+		// Set the alternation edge to loop back to the initial node and add it
 		edge_t change{ rule.input(), j - 1, 0, rule.output() };
 		transition_.insert(change);
 
+		// Debug print
 		std::cout << "Nontrivial edge " << j - 1 << " -> " << j << ": " << rule.input() << "/" << rule.output() << std::endl;
 
-		// TODO: add the "?/? goes to 0" flag
 	}
 
 	// Remember in evaluation that taking any < x, n, n, x > after a final state n is valid if edges don't specify otherwise
@@ -369,16 +269,17 @@ bool FST::Validate(std::string input_tape, std::string output_tape)
 {
 	// TODO: allow for tapes to be different lengths
 
-	// TODO: for each possible initial state? I think they must all start at state 0.
+	// TODO: "for each possible initial state"? I think they must all start at state 0.
 	int current_state = 0;
 
+	// Walk through the graph and abort if we fail
 	for (int i = 0; i < input_tape.length(); i++)
 	{
 		int new_state = OutputState(input_tape[i], output_tape[i], current_state);
 		
+		// Debug print
 		if (new_state == -9001)
 		{
-			// Invalid output character
 			std::cout << "Undefined output character at index " << i << ":" << input_tape[i] << "/" << output_tape[i] <<  "." << std::endl;
 			return false;
 		}
