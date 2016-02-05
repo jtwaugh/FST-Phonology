@@ -16,7 +16,7 @@ int main()
 
 	std::cout << "Building your FST..." << std::endl;
 
-	FST myFST("abcdefghijklmnopqrstuvwxy", "abcdefghijklmnopqrstuvwxy", myPhonRule);
+	FST myFST("abcdefghijklopqrstuvwxyN", "abcdefghijklmnopqrstuvwxy", myPhonRule);
 
 	std::string underlying;
 	std::string surface;

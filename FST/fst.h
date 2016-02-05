@@ -110,19 +110,19 @@ bool PhonRule::MatchesEnvironment(std::string prefix, std::string suffix)
 
 // Now a bunch of nonsense to build the transition function data structure:
 
-typedef std::tuple<char, int, int, char> transition_t;
+typedef std::tuple<char, int, int, char> edge_t;
 
-struct key_hash : public std::unary_function<transition_t, std::size_t>
+struct key_hash : public std::unary_function<edge_t, std::size_t>
 {
-	std::size_t operator()(const transition_t& k) const
+	std::size_t operator()(const edge_t& k) const
 	{
 		return std::get<0>(k) ^ std::get<1>(k) ^ std::get<2>(k) ^ std::get<3>(k);
 	}
 };
 
-struct key_equal : public std::binary_function<transition_t, transition_t, bool>
+struct key_equal : public std::binary_function<edge_t, edge_t, bool>
 {
-	bool operator()(const transition_t& v0, const transition_t& v1) const
+	bool operator()(const edge_t& v0, const edge_t& v1) const
 	{
 		return (
 			std::get<0>(v0) == std::get<0>(v1) &&
@@ -133,7 +133,7 @@ struct key_equal : public std::binary_function<transition_t, transition_t, bool>
 	}
 };
 
-typedef std::unordered_set<transition_t, key_hash, key_equal> transition_function_t;
+typedef std::unordered_set<edge_t, key_hash, key_equal> transition_function_t;
 
 // ----------------------------------------------
 
@@ -215,7 +215,7 @@ void FST::AddDefaultEdge(int j, char prefix_0)
 
 		for (auto k = states_.begin(); k != states_.end(); k++)
 		{
-			std::tuple<char, int, int, char> candidate{ *i, j, *k, *i };
+			edge_t candidate{ *i, j, *k, *i };
 			if (transition_.find(candidate) != transition_.end())
 			{
 				edgefound = true;
@@ -227,12 +227,12 @@ void FST::AddDefaultEdge(int j, char prefix_0)
 		{
 			if (*i == prefix_0)
 			{
-				std::tuple<char, int, int, char> default_edge{ *i, j, 1, *i };
+				edge_t default_edge{ *i, j, 1, *i };
 				transition_.insert(default_edge);
 			}
 			else
 			{
-				std::tuple<char, int, int, char> default_edge{ *i, j, 0, *i };
+				edge_t default_edge{ *i, j, 0, *i };
 				transition_.insert(default_edge);
 			}
 		}
@@ -267,51 +267,78 @@ states_(std::unordered_set<int>()), initial_states_(std::unordered_set<int>()), 
 	int j = 1;
 
 	// Add the chain of prefix states
-	for (int i = 0; i < rule.prefix().length(); i++)
+
+	if (rule.prefix().length() > 0)
+	// If there's a prefix
 	{
-		states_.insert(j);
-
-		// Ensure that we can end here
-		final_states_.insert(j);
-
-		std::tuple<char, int, int, char> edge { rule.prefix()[i], j-1, j, rule.prefix()[i] };
-
-		transition_.insert(edge);
-
-		AddDefaultEdge(j-1, rule.prefix()[0]);
-
-		j++;
-	}
-
-	if (rule.suffix().length() > 0)
-	// If there's a suffix
-	{
-		std::tuple<char, int, int, char> change{ rule.input(), j - 1, j, rule.output() };
-		transition_.insert(change);
-
-		for (int i = 0; i < rule.suffix().length() - 1; i++)
+		for (int i = 0; i < rule.prefix().length(); i++)
 		{
 			states_.insert(j);
 
-			std::tuple<char, int, int, char> edge{ rule.suffix()[i], j, j + 1, rule.suffix()[i] };
+			// Ensure that we can end here
+			final_states_.insert(j);
+
+			edge_t edge{ rule.prefix()[i], j - 1, j, rule.prefix()[i] };
 
 			transition_.insert(edge);
+
+			std::cout << "Nontrivial edge " << j - 1 << " -> " << j << ": " << rule.prefix()[i] << "/" << rule.prefix()[i] << std::endl;
 
 			AddDefaultEdge(j - 1, rule.prefix()[0]);
 
 			j++;
 		}
 
-		states_.insert(j);
+		AddDefaultEdge(j-1, rule.prefix()[0]);
+	}
+	else
+	{
+		AddDefaultEdge(0, rule.prefix()[0]);
+	}
 
-		std::tuple<char, int, int, char> end{ rule.suffix().back(), j, 0, rule.suffix().back() };
+	states_.insert(j);
+
+	if (rule.suffix().length() > 0)
+	// If there's a suffix
+	{
+		edge_t change{ rule.input(), j - 1, j, rule.output() };
+		transition_.insert(change);
+
+		std::cout << "Nontrivial edge " << j - 1 << " -> " << j << ": " << rule.input() << "/" << rule.output() << std::endl;
+
+		j++;
+
+		for (int i = 0; i < rule.suffix().length() - 1; i++)
+		{
+			states_.insert(j);
+
+			edge_t edge{ rule.suffix()[i], j - 1, j, rule.suffix()[i] };
+
+			transition_.insert(edge);
+
+			std::cout << "Nontrivial edge " << j - 1 << " -> " << j << ": " << rule.suffix()[i] << "/" << rule.suffix()[i] << std::endl;
+
+			AddDefaultEdge(j - 1, rule.prefix()[0]);
+
+			j++;
+		}
+
+		states_.insert(j - 1);
+
+		edge_t end{ rule.suffix().back(), j - 1, 0, rule.suffix().back() };
 		transition_.insert(end);
+
+		std::cout << "Nontrivial edge " << j - 1 << " -> " << 0 << ": " << rule.suffix().back() << "/" << rule.suffix().back() << std::endl;
+
+		AddDefaultEdge(j, rule.prefix()[0]);
 	}
 	else
 	// Otherwise
 	{
-		std::tuple<char, int, int, char> change{ rule.input(), j - 1, 0, rule.output() };
+		edge_t change{ rule.input(), j - 1, 0, rule.output() };
 		transition_.insert(change);
+
+		std::cout << "Nontrivial edge " << j - 1 << " -> " << j << ": " << rule.input() << "/" << rule.output() << std::endl;
 
 		// TODO: add the "?/? goes to 0" flag
 	}
@@ -325,7 +352,7 @@ int FST::OutputState(char input, char output, int current_state)
 
 	for (auto j = states_.begin(); j != states_.end(); j++)
 	{
-		std::tuple<char, int, int, char> edge{ input, current_state, *j, output };
+		edge_t edge{ input, current_state, *j, output };
 
 		if (transition_.find(edge) != transition_.end())
 		{
@@ -352,12 +379,12 @@ bool FST::Validate(std::string input_tape, std::string output_tape)
 		if (new_state == -9001)
 		{
 			// Invalid output character
-			std::cout << "Undefined output character at index " << i << " ." << std::endl;
+			std::cout << "Undefined output character at index " << i << ":" << input_tape[i] << "/" << output_tape[i] <<  "." << std::endl;
 			return false;
 		}
 		else
 		{
-			std::cout << input_tape[i] << "/" << output_tape[i] << " takes state " << current_state << " to state " << new_state << "." << std::endl;
+			std::cout << input_tape[i] << "/" << output_tape[i] << " takes state " << current_state << " -> " << new_state << "." << std::endl;
 		}
 
 		current_state = new_state;
