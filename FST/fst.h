@@ -18,6 +18,9 @@
 
 // Gonna hardcode the state types and input/output as chars. Sorry.
 
+const char ZERO = '0';
+const int NO_STATE = -9001;
+
 // The FST is an automaton that holds a transition relation and two sets of symbols.
 // It validates a string of symbols in the first set against a string of symbols in the second.
 
@@ -216,7 +219,7 @@ states_(std::unordered_set<int>()), initial_states_(std::unordered_set<int>()), 
 		j++;
 
 		// Add the suffix chain
-		FillChain(rule.suffix(), j, rule.prefix()[0]);
+		FillChain(rule.suffix().substr(0, rule.suffix().size() - 1), j, rule.prefix()[0]);
 
 		// Add the last state
 		states_.insert(j - 1);
@@ -262,7 +265,7 @@ int FST::OutputState(char input, char output, int current_state)
 
 	// Otherwise otherwise, we've reallly screwed the pooch
 	// We probably want only positively-numbered states anyway
-	return -9001;
+	return NO_STATE;
 }
 
 bool FST::Validate(std::string input_tape, std::string output_tape)
@@ -272,20 +275,41 @@ bool FST::Validate(std::string input_tape, std::string output_tape)
 	// TODO: "for each possible initial state"? I think they must all start at state 0.
 	int current_state = 0;
 
+	int output_counter = 0;
+
 	// Walk through the graph and abort if we fail
-	for (int i = 0; i < input_tape.length(); i++)
+	for (int input_counter = 0; input_counter < input_tape.length();)
 	{
-		int new_state = OutputState(input_tape[i], output_tape[i], current_state);
-		
-		// Debug print
-		if (new_state == -9001)
+		// First check for epenthesis
+
+		int new_state = OutputState(ZERO, output_tape[output_counter], current_state);
+
+		if (new_state == NO_STATE)
 		{
-			std::cout << "Undefined output character at index " << i << ":" << input_tape[i] << "/" << output_tape[i] <<  "." << std::endl;
-			return false;
+			new_state = OutputState(input_tape[input_counter], output_tape[output_counter], current_state);
+
+			if (new_state == NO_STATE)
+			{
+				// Debug print if we found nothing
+
+				std::cout << "Undefined output character at indices " << input_counter << " and " << output_counter << ":" << input_tape[input_counter] << "/" << output_tape[output_counter] << "." << std::endl;
+				return false;
+			}
+			else
+			{
+				// We found an alternation
+
+				std::cout << input_tape[input_counter] << "/" << output_tape[output_counter] << " takes state " << current_state << " -> " << new_state << "." << std::endl;
+				input_counter++;
+				output_counter++;
+			}
 		}
 		else
 		{
-			std::cout << input_tape[i] << "/" << output_tape[i] << " takes state " << current_state << " -> " << new_state << "." << std::endl;
+			// We found epenthesis
+
+			std::cout << "0/" << output_tape[output_counter] << " takes state " << current_state << " -> " << new_state << "." << std::endl;
+			output_counter++;
 		}
 
 		current_state = new_state;
