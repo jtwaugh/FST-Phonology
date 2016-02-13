@@ -225,7 +225,7 @@ states_(std::unordered_set<int>()), initial_states_(std::unordered_set<int>()), 
 		states_.insert(j - 1);
 
 		// Add the edge looping back to the terminal state
-		edge_t end{ rule.suffix().back(), j - 1, 0, rule.suffix().back() };
+		edge_t end { rule.suffix().back(), j - 1, 0, rule.suffix().back() };
 		transition_.insert(end);
 
 		// Debug print
@@ -233,6 +233,56 @@ states_(std::unordered_set<int>()), initial_states_(std::unordered_set<int>()), 
 
 		// Add default edges to the last node
 		AddDefaultEdge(j, rule.prefix()[0]);
+
+		// If we have epenthesis, we need an alternative to "contain" the word if it does something like "uvwxyuvwaxyz" for the rule "0 > a / uvw_xyz"
+		// To this end, we create a chain of terminal states that notably excludes the last character of the suffix
+		// This way, we can almost complete the invalid form without breaking mandatory epenthesis
+		if (rule.input() == ZERO)
+		{
+			int i = 1;
+
+			// Erase the loopback from the last character of the prefix
+			edge_t dontgobacktozero { rule.suffix()[0], rule.prefix().length(), 0, rule.suffix()[0] };
+			transition_.erase(dontgobacktozero);
+
+			// Insert the first state of the divergent chain and link it to the laast character of the prefix
+			states_.insert(i + j - 1);
+			final_states_.insert(i + j - 1);
+			edge_t myedge{ rule.suffix()[0], rule.prefix().length(), i + j - 1, rule.suffix()[0] };
+			transition_.insert(myedge);
+
+			// Debug print
+			std::cout << "Nontrivial edge " << rule.prefix().length() << " -> " << i + j - 1 << ": " << rule.suffix()[0] << "/" << rule.suffix()[0] << std::endl;
+
+			// Create a chain of these states
+			for (i; i < rule.suffix().length() - 1; i++)
+			{
+				states_.insert(i + j - 1);
+				final_states_.insert(i + j - 1);
+				edge_t myedge{ rule.suffix()[i], i + j - 1, i + j, rule.suffix()[i] };
+				transition_.insert(myedge);
+
+				// Debug print
+				std::cout << "Nontrivial edge " << i + j - 1 << " -> " << i + j << ": " << rule.suffix()[i] << "/" << rule.suffix()[i] << std::endl;
+
+				AddDefaultEdge(i + j - 1, rule.prefix()[0]);
+			}
+			
+			// Send the last one back to zero
+			states_.insert(i + j - 1);
+			final_states_.insert(i + j - 1);
+			edge_t endedge{ rule.suffix()[i], i + j - 1, 0, rule.suffix()[i] };
+			transition_.insert(myedge);
+
+			// Debug print
+			std::cout << "Nontrivial edge " << i + j - 1 << " -> " << 0 << ": " << rule.suffix()[i] << "/" << rule.suffix()[i] << std::endl;
+
+			AddDefaultEdge(i + j - 1, rule.prefix()[0]);
+
+			// But make sure it's invalid if it tries to complete the suffix
+			edge_t noloopback { rule.suffix().back(), i + j - 1, 0, rule.suffix().back() };
+			transition_.erase(noloopback);
+		}
 	}
 	else
 	// Otherwise
@@ -275,30 +325,30 @@ bool FST::Validate(std::string input_tape, std::string output_tape)
 	// TODO: "for each possible initial state"? I think they must all start at state 0.
 	int current_state = 0;
 
+	// Looks like we have to count separately
+	int input_counter = 0;
 	int output_counter = 0;
 
 	// Walk through the graph and abort if we fail
-	for (int input_counter = 0; input_counter < input_tape.length();)
+	while (input_counter < input_tape.length())
 	{
-		// First check for epenthesis
-
 		int new_state = OutputState(ZERO, output_tape[output_counter], current_state);
 
+		// First check for epenthesis
 		if (new_state == NO_STATE)
 		{
+			// Now check for alternation
 			new_state = OutputState(input_tape[input_counter], output_tape[output_counter], current_state);
 
 			if (new_state == NO_STATE)
 			{
-				// Debug print if we found nothing
-
+				// If we really found nothing, debug print
 				std::cout << "Undefined output character at indices " << input_counter << " and " << output_counter << ":" << input_tape[input_counter] << "/" << output_tape[output_counter] << "." << std::endl;
 				return false;
 			}
 			else
 			{
-				// We found an alternation
-
+				// We found an alternation, so print and then increment both counters
 				std::cout << input_tape[input_counter] << "/" << output_tape[output_counter] << " takes state " << current_state << " -> " << new_state << "." << std::endl;
 				input_counter++;
 				output_counter++;
@@ -306,12 +356,12 @@ bool FST::Validate(std::string input_tape, std::string output_tape)
 		}
 		else
 		{
-			// We found epenthesis
-
+			// We found epenthesis, so print and then increment the output counter
 			std::cout << "0/" << output_tape[output_counter] << " takes state " << current_state << " -> " << new_state << "." << std::endl;
 			output_counter++;
 		}
 
+		// Set the new current state
 		current_state = new_state;
 	}
 
